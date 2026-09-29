@@ -41,3 +41,29 @@ db.prescriptions.insertOne({
   status: "ISSUED",
   created_at: new Date()
 });
+// 1. Inisialisasi Resep Darurat (Break-The-Glass)
+db.prescriptions.insertOne({
+  prescription_id: "RX-2026-EMERGENCY-001",
+  appointment_id: "00000000-9999-9999-9999-000000000000",
+  patient_id_type: "TEMPORARY_EMERGENCY",
+  doctor_id: "DOC-IGD-001",
+  status: "ISSUED",
+  items: [
+    { drug_code: "MED-AMX-500", quantity: 15, instructions: "3x1 sehari sesudah makan" },
+    { drug_code: "MED-PCT-500", quantity: 10, instructions: "3x1 bila demam" }
+  ],
+  notes: "EMERGENCY UNIDENTIFIED PATIENT - BREAK THE GLASS PROTOCOL",
+  created_at: new Date()
+});
+
+// 2. Simulasi Rekonsiliasi Data setelah NIK Pasien Asli Ditemukan
+db.prescriptions.updateMany(
+  { appointment_id: "00000000-9999-9999-9999-000000000000" },
+  { 
+    $set: { 
+      patient_nik: "5171099999990001",
+      patient_id_type: "VERIFIED",
+      reconciled_at: new Date()
+    } 
+  }
+);
