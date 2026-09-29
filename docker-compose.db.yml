@@ -1,0 +1,79 @@
+networks:
+  medcore-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+services:
+  patient-db:
+    image: postgres:16-alpine
+    container_name: medcore-patient-db
+    environment:
+      POSTGRES_USER: ${PATIENT_DB_USER}
+      POSTGRES_PASSWORD: ${PATIENT_DB_PASS}
+      POSTGRES_DB: ${PATIENT_DB_NAME}
+    ports:
+      - "${HOST_PORT_PATIENT_DB}:5432"
+    volumes:
+      - ./services/patient-service/ddl/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - patient_db_vol:/var/lib/postgresql/data
+    networks:
+      medcore-net:
+        ipv4_address: 172.28.0.11
+
+  appointment-db:
+    image: postgres:16-alpine
+    container_name: medcore-appointment-db
+    environment:
+      POSTGRES_USER: ${APPOINTMENT_DB_USER}
+      POSTGRES_PASSWORD: ${APPOINTMENT_DB_PASS}
+      POSTGRES_DB: ${APPOINTMENT_DB_NAME}
+    ports:
+      - "${HOST_PORT_APPOINTMENT_DB}:5432"
+    volumes:
+      - ./services/appointment-service/ddl/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - appointment_db_vol:/var/lib/postgresql/data
+    networks:
+      medcore-net:
+        ipv4_address: 172.28.0.12
+
+  pharmacy-db:
+    image: mongo:7.0-jammy
+    container_name: medcore-pharmacy-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS}
+      MONGO_INITDB_DATABASE: ${PHARMACY_DB_NAME}
+    ports:
+      - "${HOST_PORT_PHARMACY_DB}:27017"
+    volumes:
+      - ./services/pharmacy-service/ddl/init.js:/docker-entrypoint-initdb.d/init.js:ro
+      - pharmacy_db_vol:/data/db
+    networks:
+      medcore-net:
+        ipv4_address: 172.28.0.13
+
+  billing-db:
+    image: mysql:8.0-debian
+    container_name: medcore-billing-db
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: RootMasterSecurity2026!
+      MYSQL_DATABASE: ${BILLING_DB_NAME}
+      MYSQL_USER: ${BILLING_DB_USER}
+      MYSQL_PASSWORD: ${BILLING_DB_PASS}
+    ports:
+      - "${HOST_PORT_BILLING_DB}:3306"
+    volumes:
+      - ./services/billing-service/ddl/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - billing_db_vol:/var/lib/mysql
+    networks:
+      medcore-net:
+        ipv4_address: 172.28.0.14
+
+volumes:
+  patient_db_vol:
+  appointment_db_vol:
+  pharmacy_db_vol:
+  billing_db_vol:
