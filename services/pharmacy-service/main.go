@@ -5,19 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
+	"os"
 	"time"
 
+	"pharmacy-service/consumer"
 	pb "pharmacy-service/pb"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// =====================================================
+// EXISTING CODE — MODUL 02
+// =====================================================
 
 type server struct {
 	pb.UnimplementedPharmacyServiceServer
@@ -31,24 +34,50 @@ type DrugDoc struct {
 	TotalStock int32   `bson:"total_stock"`
 }
 
-func (s *server) CheckDrugAvailability(ctx context.Context, req *pb.CheckDrugRequest) (*pb.CheckDrugResponse, error) {
-	log.Printf("[gRPC Server] Memeriksa stok obat: %s, jumlah diminta: %d", req.GetDrugCode(), req.GetQuantityNeeded())
+func (s *server) CheckDrugAvailability(
+	ctx context.Context,
+	req *pb.CheckDrugRequest,
+) (*pb.CheckDrugResponse, error) {
+	log.Printf(
+		"[gRPC Server] Memeriksa stok obat: %s, jumlah diminta: %d",
+		req.GetDrugCode(),
+		req.GetQuantityNeeded(),
+	)
 
 	time.Sleep(2 * time.Second)
-	
+
 	if req.GetQuantityNeeded() > 5000 {
-		return nil, status.Errorf(codes.ResourceExhausted, "Permintaan melebihi batas kuota farmasi")
+		return nil, status.Errorf(
+			codes.ResourceExhausted,
+			"Permintaan melebihi batas kuota farmasi",
+		)
 	}
 
-	coll := s.mongoClient.Database("medcore_pharmacy_db").Collection("drugs")
+	coll := s.mongoClient.
+		Database("medcore_pharmacy_db").
+		Collection("drugs")
 
 	var drug DrugDoc
-	err := coll.FindOne(ctx, bson.M{"drug_code": req.GetDrugCode()}).Decode(&drug)
+
+	err := coll.FindOne(
+		ctx,
+		bson.M{"drug_code": req.GetDrugCode()},
+	).Decode(&drug)
+
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, status.Errorf(codes.NotFound, "Obat dengan kode %s tidak ditemukan dalam inventaris", req.GetDrugCode())
+			return nil, status.Errorf(
+				codes.NotFound,
+				"Obat dengan kode %s tidak ditemukan dalam inventaris",
+				req.GetDrugCode(),
+			)
 		}
-		return nil, status.Errorf(codes.Internal, "Database error: %v", err)
+
+		return nil, status.Errorf(
+			codes.Internal,
+			"Database error: %v",
+			err,
+		)
 	}
 
 	if drug.TotalStock < req.GetQuantityNeeded() {
@@ -57,7 +86,11 @@ func (s *server) CheckDrugAvailability(ctx context.Context, req *pb.CheckDrugReq
 			IsAvailable:  false,
 			CurrentStock: drug.TotalStock,
 			UnitPrice:    drug.UnitPrice,
-			Message:      fmt.Sprintf("Stok tidak mencukupi. Tersedia: %d, Dibutuhkan: %d", drug.TotalStock, req.GetQuantityNeeded()),
+			Message: fmt.Sprintf(
+				"Stok tidak mencukupi. Tersedia: %d, Dibutuhkan: %d",
+				drug.TotalStock,
+				req.GetQuantityNeeded(),
+			),
 		}, nil
 	}
 
@@ -70,52 +103,87 @@ func (s *server) CheckDrugAvailability(ctx context.Context, req *pb.CheckDrugReq
 	}, nil
 }
 
-
 func startRESTServer(mongoClient *mongo.Client) {
-	http.HandleFunc("/api/v1/drugs/check", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	http.HandleFunc(
+		"/api/v1/drugs/check",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(
+					w,
+					"Method not allowed",
+					http.StatusMethodNotAllowed,
+				)
+				return
+			}
 
-		drugCode := r.URL.Query().Get("drug_code")
-		coll := mongoClient.Database("medcore_pharmacy_db").Collection("drugs")
+			drugCode := r.URL.Query().Get("drug_code")
 
-		var drug DrugDoc
-		err := coll.FindOne(r.Context(), bson.M{"drug_code": drugCode}).Decode(&drug)
-		if err != nil {
+			coll := mongoClient.
+				Database("medcore_pharmacy_db").
+				Collection("drugs")
+
+			var drug DrugDoc
+
+			err := coll.FindOne(
+				r.Context(),
+				bson.M{"drug_code": drugCode},
+			).Decode(&drug)
+
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+
+				json.NewEncoder(w).Encode(
+					map[string]string{
+						"error": "Obat tidak ditemukan",
+					},
+				)
+				return
+			}
+
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Obat tidak ditemukan"})
-			return
-		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"drug_code":     drug.DrugCode,
-			"is_available":  drug.TotalStock >= 10,
-			"current_stock": drug.TotalStock,
-			"unit_price":    drug.UnitPrice,
-			"message":       "Stok obat mencukupi",
-		})
-	})
+			json.NewEncoder(w).Encode(
+				map[string]interface{}{
+					"drug_code":     drug.DrugCode,
+					"is_available":  drug.TotalStock >= 10,
+					"current_stock": drug.TotalStock,
+					"unit_price":    drug.UnitPrice,
+					"message":       "Stok obat mencukupi",
+				},
+			)
+		},
+	)
 
 	log.Println("MedCore Pharmacy REST Baseline aktif pada port :8081")
+
 	http.ListenAndServe(":8081", nil)
 }
 
+// =====================================================
+// MAIN MODUL 02 — DINONAKTIFKAN SEMENTARA
+// =====================================================
+
+/*
+
 func main() {
 	// Koneksi ke MongoDB kontainer
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
 	defer cancel()
 
-	mongoURI := "mongodb://adm_pharmacy_svc:SecuredPassPharm2026!@localhost:27017/medcore_pharmacy_db?authSource=admin"
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	mongoURI := os.Getenv("MONGO_URI")
+
+	client, err := mongo.Connect(
+		ctx,
+		options.Client().ApplyURI(mongoURI),
+	)
 	if err != nil {
 		log.Fatalf("Gagal terhubung ke MongoDB: %v", err)
 	}
 
-	
 	go startRESTServer(client)
 
 	lis, err := net.Listen("tcp", ":50051")
@@ -124,12 +192,36 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterPharmacyServiceServer(s, &server{mongoClient: client})
+	pb.RegisterPharmacyServiceServer(
+		s,
+		&server{mongoClient: client},
+	)
 
 	log.Println("==================================================")
 	log.Println("MedCore Pharmacy gRPC Service aktif pada port :50051")
 	log.Println("==================================================")
+
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Gagal menjalankan gRPC server: %v", err)
 	}
+}
+
+*/
+
+// =====================================================
+// MAIN MODUL 03 — PHARMACY RABBITMQ CONSUMER
+// =====================================================
+
+func main() {
+	amqpURI := os.Getenv("AMQP_URI")
+
+	if amqpURI == "" {
+		log.Fatal("[Pharmacy Service] AMQP_URI belum dikonfigurasi")
+	}
+
+	log.Println("==================================================")
+	log.Println("MedCore Pharmacy RabbitMQ Consumer")
+	log.Println("==================================================")
+
+	consumer.StartPrescriptionConsumer(amqpURI)
 }
