@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
+	"appointment-service/consumer"
 	"appointment-service/publisher"
 
 	"github.com/google/uuid"
@@ -16,7 +19,26 @@ import (
 // ============================================================================
 
 func main() {
-	amqpURI := "amqp://admin_medcore:SecuredPassRabbit2026!@localhost:5672/medcore_vhost"
+	// Flag untuk skenario uji: event_id tetap (uji duplikat), kuantitas obat
+	// (uji poison message), dan mode consumer event kompensasi stok habis.
+	eventID := flag.String("event-id", "", "event_id manual (kosong = acak)")
+	qty := flag.Int("qty", 15, "jumlah obat pada resep (<=0 untuk uji poison message)")
+	listen := flag.Bool("listen-compensation", false, "jalankan consumer event stok habis")
+	flag.Parse()
+
+	amqpURI := os.Getenv("AMQP_URI")
+	if amqpURI == "" {
+		amqpURI = "amqp://admin_medcore:SecuredPassRabbit2026!@localhost:5672/medcore_vhost"
+	}
+
+	if *listen {
+		dsn := os.Getenv("APPOINTMENT_DB_DSN")
+		if dsn == "" {
+			log.Fatal("APPOINTMENT_DB_DSN belum diset (contoh: postgres://USER:PASS@localhost:5433/medcore_appointment_db)")
+		}
+		consumer.StartStockExhaustedConsumer(amqpURI, dsn)
+		return
+	}
 
 	log.Println("[Appointment Service] Menginisialisasi koneksi messaging...")
 	pub, err := publisher.NewEventPublisher(amqpURI)
@@ -25,9 +47,14 @@ func main() {
 	}
 	defer pub.Close()
 
+	id := *eventID
+	if id == "" {
+		id = fmt.Sprintf("evt-%s", uuid.New().String())
+	}
+
 	// Simulasi event ketika konsultasi selesai
 	simulatedEvent := publisher.ConsultationCompletedEvent{
-		EventID:    fmt.Sprintf("evt-%s", uuid.New().String()),
+		EventID:    id,
 		EventName:  "ConsultationCompletedEvent",
 		OccurredAt: time.Now().UTC().Format(time.RFC3339),
 		Producer:   "appointment-service",
@@ -41,7 +68,7 @@ func main() {
 				Items: []publisher.PrescriptionItem{
 					{
 						DrugCode: "MED-AMX-500",
-						Quantity: 15,
+						Quantity: *qty,
 						Dosage:   "3x1 sehari sesudah makan",
 					},
 				},
