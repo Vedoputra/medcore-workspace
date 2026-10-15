@@ -14,12 +14,13 @@ CREATE TABLE appointments (
     doctor_id UUID REFERENCES doctors(doctor_id),
     schedule_time TIMESTAMP WITH TIME ZONE NOT NULL,
     queue_number INT NOT NULL,
-    consultation_status VARCHAR(20) DEFAULT 'SCHEDULED'
+    consultation_status VARCHAR(40) DEFAULT 'SCHEDULED'
         CHECK (consultation_status IN (
             'SCHEDULED',
             'IN_PROGRESS',
             'COMPLETED',
-            'CANCELLED'
+            'CANCELLED',
+            'PENDING_MEDICATION_SUBSTITUTION'
         )),
     clinical_notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
