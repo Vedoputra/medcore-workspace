@@ -15,9 +15,4 @@ $RMQ declare exchange name=medcore.deadletter.exchange type=fanout durable=true
 $RMQ declare queue name=pharmacy.dlq durable=true
 $RMQ declare binding source=medcore.deadletter.exchange destination=pharmacy.dlq
 
-# DLX + DLQ Billing (terpisah agar pesan Pharmacy tidak ikut masuk ke billing.dlq)
-$RMQ declare exchange name=medcore.deadletter.billing.exchange type=fanout durable=true
-$RMQ declare queue name=billing.dlq durable=true
-$RMQ declare binding source=medcore.deadletter.billing.exchange destination=billing.dlq
-
 echo "Topologi RabbitMQ siap."
