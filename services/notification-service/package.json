@@ -1,0 +1,13 @@
+{
+  "name": "notification-service",
+  "version": "1.0.0",
+  "description": "MedCore Patient Notification & Alert Worker (RabbitMQ consumer)",
+  "main": "src/notification_worker.js",
+  "scripts": {
+    "start": "node src/notification_worker.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "amqplib": "^0.10.3"
+  }
+}
