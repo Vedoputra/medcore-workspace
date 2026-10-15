@@ -1,10 +1,11 @@
 package consumer
 
 import (
-	"encoding/json"
+	"context"
 	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // EventEnvelope merepresentasikan bagian event
@@ -30,7 +31,7 @@ type EventEnvelope struct {
 
 // StartPrescriptionConsumer menjalankan RabbitMQ worker
 // yang menerima event konsultasi dan membaca data resep.
-func StartPrescriptionConsumer(amqpURI string) {
+func StartPrescriptionConsumer(amqpURI string, mongoClient *mongo.Client) {
 
 	// 1. Hubungkan Pharmacy Service ke RabbitMQ.
 	conn, err := amqp.Dial(amqpURI)
@@ -124,64 +125,9 @@ func StartPrescriptionConsumer(amqpURI string) {
 		q.Name,
 	)
 
-	// 7. Proses pesan satu per satu.
+	// 7. Proses pesan satu per satu (lihat processor.go).
 	for d := range msgs {
-
-		var evt EventEnvelope
-
-		// Decode JSON.
-		if err := json.Unmarshal(d.Body, &evt); err != nil {
-			log.Printf(
-				"[Pharmacy Consumer] Format pesan tidak valid: %v",
-				err,
-			)
-
-			// Permanent rejection.
-			// Pesan masuk DLQ jika DLX dikonfigurasi dengan benar.
-			if err := d.Nack(false, false); err != nil {
-				log.Printf(
-					"[Pharmacy Consumer] Gagal NACK: %v",
-					err,
-				)
-			}
-
-			continue
-		}
-
-		// 8. Simulasikan pemrosesan resep.
-		log.Println("---------------------------------------------------------")
-		log.Println("[Pharmacy Consumer] Menerima Resep Baru!")
-		log.Printf(" Event ID        : %s", evt.EventID)
-		log.Printf(" Appointment ID  : %s", evt.Payload.AppointmentID)
-		log.Printf(
-			" Prescription ID : %s",
-			evt.Payload.Prescription.PrescriptionID,
-		)
-
-		for _, item := range evt.Payload.Prescription.Items {
-			log.Printf(
-				" -> Item: %s | Qty: %d",
-				item.DrugCode,
-				item.Quantity,
-			)
-		}
-
-		log.Println("---------------------------------------------------------")
-
-		// 9. ACK setelah pemrosesan simulasi selesai.
-		if err := d.Ack(false); err != nil {
-			log.Printf(
-				"[Pharmacy Consumer] Gagal ACK event %s: %v",
-				evt.EventID,
-				err,
-			)
-			continue
-		}
-
-		log.Printf(
-			"[Pharmacy Consumer] Event %s berhasil di-ACK.",
-			evt.EventID,
-		)
+		processPrescription(context.Background(), mongoClient, ch, d)
 	}
 
 	log.Println("[Pharmacy Consumer] Consumer berhenti.")

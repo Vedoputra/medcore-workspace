@@ -14,6 +14,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -223,5 +224,18 @@ func main() {
 	log.Println("MedCore Pharmacy RabbitMQ Consumer")
 	log.Println("==================================================")
 
-	consumer.StartPrescriptionConsumer(amqpURI)
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		log.Fatal("[Pharmacy Service] MONGO_URI belum dikonfigurasi")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		log.Fatalf("[Pharmacy Service] Gagal terhubung ke MongoDB: %v", err)
+	}
+
+	consumer.StartPrescriptionConsumer(amqpURI, mongoClient)
 }
