@@ -21,31 +21,22 @@ async function startNotificationWorker() {
     channel.consume(
       q.queue,
       (msg) => {
-        if (msg === null) return;
-
-        let eventData;
-        try {
-          eventData = JSON.parse(msg.content.toString());
-        } catch (err) {
-          console.error('[Notification Worker] Format pesan tidak valid, dibuang:', err.message);
-          channel.nack(msg, false, false);
-          return;
+        if (msg !== null) {
+          const eventData = JSON.parse(msg.content.toString());
+          console.log(
+            `\n[SMS/WhatsApp Gateway] Mengirim Notifikasi ke Pasien: ${eventData.payload.patient_id}`
+          );
+          console.log(
+            `Pesan: "Sesi konsultasi Anda (${eventData.payload.appointment_id}) telah selesai. Resep sedang disiapkan oleh Farmasi."`
+          );
+          channel.ack(msg);
+          console.log(`[Notification Worker] Event ${eventData.event_id} di-ACK.`);
         }
-
-        console.log(
-          `\n[SMS/WhatsApp Gateway] Mengirim Notifikasi ke Pasien: ${eventData.payload.patient_id}`
-        );
-        console.log(
-          `Pesan: "Sesi konsultasi Anda (${eventData.payload.appointment_id}) telah selesai. Resep sedang disiapkan oleh Farmasi."`
-        );
-        channel.ack(msg);
-        console.log(`[Notification Worker] Event ${eventData.event_id} di-ACK.`);
       },
       { noAck: false }
     );
   } catch (error) {
     console.error('[Notification Worker] Error:', error);
-    process.exit(1);
   }
 }
 
