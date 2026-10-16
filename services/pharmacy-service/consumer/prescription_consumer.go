@@ -53,6 +53,24 @@ func StartPrescriptionConsumer(amqpURI string, mongoClient *mongo.Client) {
 	}
 	defer ch.Close()
 
+	// Pastikan exchange tersedia (idempoten, parameter sama dengan publisher)
+	// agar consumer dapat dijalankan sebelum publisher atau skrip topologi.
+	err = ch.ExchangeDeclare(
+		"medcore.clinical.events",
+		"topic",
+		true,  // Durable
+		false, // Auto-delete
+		false, // Internal
+		false, // No-wait
+		nil,
+	)
+	if err != nil {
+		log.Fatalf(
+			"[Pharmacy Consumer] Gagal deklarasi exchange: %v",
+			err,
+		)
+	}
+
 	// 3. Konfigurasi Pharmacy Queue.
 	//
 	// Penyesuaian untuk topology D:
