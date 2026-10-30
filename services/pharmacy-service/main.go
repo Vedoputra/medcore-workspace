@@ -214,14 +214,16 @@ func main() {
 // =====================================================
 
 func main() {
-	amqpURI := os.Getenv("AMQP_URI")
-
+	amqpURI := os.Getenv("RABBITMQ_URI")
 	if amqpURI == "" {
-		log.Fatal("[Pharmacy Service] AMQP_URI belum dikonfigurasi")
+		amqpURI = os.Getenv("AMQP_URI")
+	}
+	if amqpURI == "" {
+		log.Fatal("[Pharmacy Service] RABBITMQ_URI/AMQP_URI belum dikonfigurasi")
 	}
 
 	log.Println("==================================================")
-	log.Println("MedCore Pharmacy RabbitMQ Consumer")
+	log.Println("MedCore Pharmacy Service (REST + RabbitMQ Consumer)")
 	log.Println("==================================================")
 
 	mongoURI := os.Getenv("MONGO_URI")
@@ -237,5 +239,10 @@ func main() {
 		log.Fatalf("[Pharmacy Service] Gagal terhubung ke MongoDB: %v", err)
 	}
 
+	// Jalankan REST baseline server di background (port 8081)
+	go startRESTServer(mongoClient)
+
+	// Jalankan RabbitMQ consumer
 	consumer.StartPrescriptionConsumer(amqpURI, mongoClient)
 }
+

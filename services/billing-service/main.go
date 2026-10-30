@@ -8,13 +8,21 @@ import (
 )
 
 func main() {
-	amqpURI := os.Getenv("AMQP_URI")
+	amqpURI := os.Getenv("RABBITMQ_URI")
 	if amqpURI == "" {
-		log.Fatal("AMQP_URI belum diset (contoh: amqp://USER:PASS@localhost:5672/medcore_vhost)")
+		amqpURI = os.Getenv("AMQP_URI")
 	}
-	dsn := os.Getenv("BILLING_DB_DSN")
+	if amqpURI == "" {
+		log.Fatal("RABBITMQ_URI/AMQP_URI belum diset")
+	}
+
+	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Fatal("BILLING_DB_DSN belum diset (contoh: USER:PASS@tcp(localhost:3306)/medcore_billing_db)")
+		dsn = os.Getenv("BILLING_DB_DSN")
 	}
+	if dsn == "" {
+		log.Fatal("DATABASE_URL/BILLING_DB_DSN belum diset")
+	}
+
 	consumer.StartBillingConsumer(amqpURI, dsn)
 }

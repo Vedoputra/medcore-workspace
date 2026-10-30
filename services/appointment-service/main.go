@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -19,22 +20,101 @@ import (
 // ============================================================================
 
 func main() {
-	// Flag untuk skenario uji: event_id tetap (uji duplikat), kuantitas obat
-	// (uji poison message), dan mode consumer event kompensasi stok habis.
 	eventID := flag.String("event-id", "", "event_id manual (kosong = acak)")
 	qty := flag.Int("qty", 15, "jumlah obat pada resep (<=0 untuk uji poison message)")
 	listen := flag.Bool("listen-compensation", false, "jalankan consumer event stok habis")
 	flag.Parse()
 
-	amqpURI := os.Getenv("AMQP_URI")
+	amqpURI := os.Getenv("RABBITMQ_URI")
+	if amqpURI == "" {
+		amqpURI = os.Getenv("AMQP_URI")
+	}
 	if amqpURI == "" {
 		amqpURI = "amqp://admin_medcore:SecuredPassRabbit2026!@localhost:5672/medcore_vhost"
 	}
 
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("APPOINTMENT_DB_DSN")
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Mode Container: Jalankan HTTP server dan consumer di background
+	if os.Getenv("DATABASE_URL") != "" || os.Getenv("PORT") != "" {
+		log.Printf("[Appointment Service] Menjalankan service pada port :%s", port)
+
+		if amqpURI != "" && dsn != "" {
+			go func() {
+				// Retry connection to RabbitMQ if still initializing
+				for {
+					log.Println("[Appointment Consumer] Memulai worker consumer...")
+					consumer.StartStockExhaustedConsumer(amqpURI, dsn)
+					time.Sleep(3 * time.Second)
+				}
+			}()
+		}
+
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"UP","service":"appointment-service"}`))
+		})
+
+		http.HandleFunc("/api/v1/appointments/publish", func(w http.ResponseWriter, r *http.Request) {
+			pub, err := publisher.NewEventPublisher(amqpURI)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Gagal inisialisasi publisher: %v", err), http.StatusInternalServerError)
+				return
+			}
+			defer pub.Close()
+
+			simEvent := publisher.ConsultationCompletedEvent{
+				EventID:    fmt.Sprintf("evt-%s", uuid.New().String()),
+				EventName:  "ConsultationCompletedEvent",
+				OccurredAt: time.Now().UTC().Format(time.RFC3339),
+				Producer:   "appointment-service",
+				Payload: publisher.ConsultationPayload{
+					AppointmentID:      "b1111111-1111-1111-1111-111111111111",
+					PatientID:          "a0000000-0000-0000-0000-000000000001",
+					DoctorID:           "b0000000-0000-0000-0000-000000000001",
+					ConsultationStatus: "COMPLETED",
+					Prescription: publisher.PrescriptionData{
+						PrescriptionID: "RX-2026-9901",
+						Items: []publisher.PrescriptionItem{
+							{DrugCode: "MED-AMX-500", Quantity: 15, Dosage: "3x1 sehari sesudah makan"},
+						},
+					},
+					BillingSummary: publisher.BillingData{ConsultationFee: 150000.0, TriageUrgency: "GREEN"},
+				},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := pub.PublishConsultationCompleted(ctx, simEvent); err != nil {
+				http.Error(w, fmt.Sprintf("Gagal publish: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"PUBLISHED","event_id":"` + simEvent.EventID + `"}`))
+		})
+
+		log.Printf("[Appointment Service] Siap menerima request di :%s", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Fatalf("[Appointment Service] HTTP server error: %v", err)
+		}
+		return
+	}
+
+	// Mode CLI standalone (tugas modul 3 sebelumnya)
 	if *listen {
-		dsn := os.Getenv("APPOINTMENT_DB_DSN")
 		if dsn == "" {
-			log.Fatal("APPOINTMENT_DB_DSN belum diset (contoh: postgres://USER:PASS@localhost:5433/medcore_appointment_db)")
+			log.Fatal("APPOINTMENT_DB_DSN belum diset")
 		}
 		consumer.StartStockExhaustedConsumer(amqpURI, dsn)
 		return
@@ -52,7 +132,6 @@ func main() {
 		id = fmt.Sprintf("evt-%s", uuid.New().String())
 	}
 
-	// Simulasi event ketika konsultasi selesai
 	simulatedEvent := publisher.ConsultationCompletedEvent{
 		EventID:    id,
 		EventName:  "ConsultationCompletedEvent",
