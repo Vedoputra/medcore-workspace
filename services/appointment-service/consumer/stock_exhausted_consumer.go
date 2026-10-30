@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -25,11 +26,12 @@ type stockExhaustedEvent struct {
 func StartStockExhaustedConsumer(amqpURI, dbDSN string) {
 	ctx := context.Background()
 
-	db, err := pgx.Connect(ctx, dbDSN)
+	// Pool koneksi: otomatis menyambung ulang setelah database restart.
+	db, err := pgxpool.New(ctx, dbDSN)
 	if err != nil {
 		log.Fatalf("[Appointment Consumer] Gagal koneksi database: %v", err)
 	}
-	defer db.Close(ctx)
+	defer db.Close()
 
 	conn, err := amqp.Dial(amqpURI)
 	if err != nil {
@@ -75,6 +77,7 @@ func StartStockExhaustedConsumer(amqpURI, dbDSN string) {
 			evt.Payload.AppointmentID)
 		if err != nil {
 			log.Printf("[Appointment Consumer] Gagal update status: %v. Requeue.", err)
+			time.Sleep(2 * time.Second) // beri waktu database pulih
 			d.Nack(false, true)
 			continue
 		}

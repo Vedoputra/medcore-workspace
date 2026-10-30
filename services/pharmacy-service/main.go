@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -162,55 +164,7 @@ func startRESTServer(mongoClient *mongo.Client) {
 }
 
 // =====================================================
-// MAIN MODUL 02 — DINONAKTIFKAN SEMENTARA
-// =====================================================
-
-/*
-
-func main() {
-	// Koneksi ke MongoDB kontainer
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		10*time.Second,
-	)
-	defer cancel()
-
-	mongoURI := os.Getenv("MONGO_URI")
-
-	client, err := mongo.Connect(
-		ctx,
-		options.Client().ApplyURI(mongoURI),
-	)
-	if err != nil {
-		log.Fatalf("Gagal terhubung ke MongoDB: %v", err)
-	}
-
-	go startRESTServer(client)
-
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("Gagal membuka port 50051: %v", err)
-	}
-
-	s := grpc.NewServer()
-	pb.RegisterPharmacyServiceServer(
-		s,
-		&server{mongoClient: client},
-	)
-
-	log.Println("==================================================")
-	log.Println("MedCore Pharmacy gRPC Service aktif pada port :50051")
-	log.Println("==================================================")
-
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("Gagal menjalankan gRPC server: %v", err)
-	}
-}
-
-*/
-
-// =====================================================
-// MAIN MODUL 03 — PHARMACY RABBITMQ CONSUMER
+// MAIN — gRPC (Modul 02), REST baseline, dan RabbitMQ consumer (Modul 03)
 // =====================================================
 
 func main() {
@@ -236,6 +190,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("[Pharmacy Service] Gagal terhubung ke MongoDB: %v", err)
 	}
+
+	go startRESTServer(mongoClient)
+
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("Gagal membuka port 50051: %v", err)
+	}
+	gs := grpc.NewServer()
+	pb.RegisterPharmacyServiceServer(gs, &server{mongoClient: mongoClient})
+	go func() {
+		log.Println("MedCore Pharmacy gRPC Service aktif pada port :50051")
+		if err := gs.Serve(lis); err != nil {
+			log.Fatalf("Gagal menjalankan gRPC server: %v", err)
+		}
+	}()
 
 	consumer.StartPrescriptionConsumer(amqpURI, mongoClient)
 }
